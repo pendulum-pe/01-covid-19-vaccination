@@ -1,0 +1,282 @@
+---
+title: "Análisis de diferencia en vacunación"
+author: "Brian Peña-Calero"
+date: "14/7/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    highlight: kate
+    theme: flatly
+    code_folding: hide
+    toc_depth: 3
+    code_download: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Importación de datos
+
+```{r}
+vacunas <- readr::read_csv("1. Data/vacunas_covid.csv")
+adultos_mayores_2017 <- readRDS("1. Data/adultos_mayores_2017.rds")
+```
+
+[**Características:**]{.ul}
+
+```{r}
+vacunas %>% 
+  glimpse()
+```
+
+# Análisis descriptivo de la data
+
+```{r}
+skimr::skim(vacunas)
+```
+
+```{r}
+summarytools::dfSummary(vacunas) %>% 
+  summarytools::view()
+```
+
+# Elaboración de los gráficos
+
+```{r setup-plot, include=FALSE}
+library(ggalt)
+```
+
+## Preparación de data
+
+```{r}
+adultos_mayores_dep <- adultos_mayores_2017 %>% 
+  group_by(dep) %>% 
+  summarise(INEI_55annus_2017 = sum(INEI_55annus_2017),
+            INEI_Total = sum(INEI_total_2017.x)) %>% 
+  rename(DEPARTAMENTO = dep)
+
+# test <- vacunas %>% 
+#   add_count(UUID) %>% 
+#   filter(n > 1)
+```
+
+```{r}
+vacuna_dep_dosis_2 <- vacunas %>% 
+  filter(DOSIS == 2, EDAD >= 60) %>% 
+  count(DEPARTAMENTO,
+        name = "Vacuna_dosis_2")
+
+vacuna_dep_dosis_2 <- vacuna_dep_dosis_2 %>% 
+  inner_join(adultos_mayores_dep) %>% 
+  mutate(
+    ratio_vacuna = Vacuna_dosis_2/INEI_Total,
+    ratio_adulto_mayor = INEI_55annus_2017/INEI_Total
+  ) %>% 
+  mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
+```
+
+```{r}
+vacuna_dep_dosis_2 %>% 
+  mutate(
+    Diferencia = ratio_adulto_mayor - ratio_vacuna,
+    DEPARTAMENTO = fct_reorder(DEPARTAMENTO, 
+                                    ratio_adulto_mayor)
+  ) %>% 
+  ggplot() +
+  geom_segment(aes(y = DEPARTAMENTO, 
+                   yend = DEPARTAMENTO,
+                   x = 0, xend = 0.35), 
+               color = "#b2b2b2", 
+               size = 0.15) +
+  geom_dumbbell(aes(y = DEPARTAMENTO,
+                    x = ratio_vacuna,
+                    xend = ratio_adulto_mayor),
+                size = 1.5,
+                color = "#b2b2b2", 
+                colour_x = "#2c8ba7", 
+                colour_xend = "#2f4871",
+                size_x = 3,
+                size_xend = 3) +
+  geom_text(aes(x = 0.09,
+                y = 25.7,
+                label = "Vacunados"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  geom_text(aes(x = 0.18,
+                y = 25.7,
+                label = "+60 años"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  geom_text(aes(x = ratio_vacuna,
+                y = DEPARTAMENTO,
+                label = scales::percent(ratio_vacuna,
+                                        accuracy = 1)),
+            size = 3, vjust = 2.2) +
+  geom_text(aes(x = ratio_adulto_mayor,
+                y = DEPARTAMENTO,
+                label = scales::percent(ratio_adulto_mayor,
+                                        accuracy = 1)),
+            size = 3, vjust = 2.2) +
+  geom_rect(aes(xmin = 0.28,
+                xmax = 0.32,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "grey") +
+  geom_text(aes(x = 0.3,
+                y = DEPARTAMENTO,
+                label = scales::percent(Diferencia,
+                                        accuracy = 1)),
+            fontface = "bold",
+            size = 3) +
+  geom_text(aes(x = 0.3,
+                y = 25.7,
+                label = "Diff"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  theme_bw() +
+  scale_x_continuous(expand=c(0,0), limits=c(0, 0.35)) +
+  scale_y_discrete(expand=c(0.05,0)) +
+  labs(y = "",
+       x = "") + 
+  theme_bw(base_family="Lato") +
+  theme(
+    panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    panel.border=element_blank(),
+    axis.ticks=element_blank(),
+    axis.text.x=element_blank(),
+    plot.title=element_text(size = 16, face="bold"),
+    plot.title.position = "plot",
+    plot.subtitle=element_text(face="italic", size=12, margin=margin(b=12)),
+    plot.caption=element_text(size=8, margin=margin(t=12), color="#7a7d7e")
+  )
+  
+  
+
+  ggsave(filename = "test.png",
+         height = 9,
+         width = 6,
+         dpi = 300)
+
+  
+```
+
+
+
+```{r}
+vacuna_dep_dosis_1 <- vacunas %>% 
+  filter(DOSIS == 1, EDAD >= 60) %>% 
+  count(DEPARTAMENTO,
+        name = "Vacuna_dosis_2")
+
+vacuna_dep_dosis_1 <- vacuna_dep_dosis_1 %>% 
+  inner_join(adultos_mayores_dep) %>% 
+  mutate(
+    ratio_vacuna = Vacuna_dosis_2/INEI_Total,
+    ratio_adulto_mayor = INEI_55annus_2017/INEI_Total
+  ) %>% 
+  mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
+```
+
+```{r}
+vacuna_dep_dosis_1 %>% 
+  mutate(
+    Diferencia = ratio_adulto_mayor - ratio_vacuna,
+    DEPARTAMENTO = fct_reorder(DEPARTAMENTO, 
+                                    ratio_adulto_mayor)
+  ) %>% 
+  ggplot() +
+  geom_segment(aes(y = DEPARTAMENTO, 
+                   yend = DEPARTAMENTO,
+                   x = 0, xend = 0.35), 
+               color = "#b2b2b2", 
+               size = 0.15) +
+  geom_dumbbell(aes(y = DEPARTAMENTO,
+                    x = ratio_vacuna,
+                    xend = ratio_adulto_mayor),
+                size = 1.5,
+                color = "#b2b2b2", 
+                colour_x = "#2c8ba7", 
+                colour_xend = "#2f4871",
+                size_x = 3,
+                size_xend = 3) +
+  geom_text(aes(x = 0.09,
+                y = 25.7,
+                label = "Vacunados"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  geom_text(aes(x = 0.18,
+                y = 25.7,
+                label = "+60 años"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  geom_text(aes(x = ratio_vacuna,
+                y = DEPARTAMENTO,
+                label = scales::percent(ratio_vacuna,
+                                        accuracy = 1)),
+            size = 3, vjust = 2.2) +
+  geom_text(aes(x = ratio_adulto_mayor,
+                y = DEPARTAMENTO,
+                label = scales::percent(ratio_adulto_mayor,
+                                        accuracy = 1)),
+            size = 3, vjust = 2.2) +
+  geom_rect(aes(xmin = 0.28,
+                xmax = 0.32,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "grey") +
+  geom_text(aes(x = 0.3,
+                y = DEPARTAMENTO,
+                label = scales::percent(Diferencia,
+                                        accuracy = 1)),
+            fontface = "bold",
+            size = 3) +
+  geom_text(aes(x = 0.3,
+                y = 25.7,
+                label = "Diff"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  theme_bw() +
+  scale_x_continuous(expand=c(0,0), limits=c(0, 0.35)) +
+  scale_y_discrete(expand=c(0.05,0)) +
+  labs(y = "",
+       x = "") + 
+  theme_bw(base_family="Lato") +
+  theme(
+    panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    panel.border=element_blank(),
+    axis.ticks=element_blank(),
+    axis.text.x=element_blank(),
+    plot.title=element_text(size = 16, face="bold"),
+    plot.title.position = "plot",
+    plot.subtitle=element_text(face="italic", size=12, margin=margin(b=12)),
+    plot.caption=element_text(size=8, margin=margin(t=12), color="#7a7d7e")
+  )
+  
+  
+
+  ggsave(filename = "test2.png",
+         height = 9,
+         width = 6,
+         dpi = 300)
+
+  
+```
+
+Contrastar edad mínima por departamento
+Se podría calcular la edad mínima reportada en la data con solo grupo de riesgo de adulto mayor
+
+
