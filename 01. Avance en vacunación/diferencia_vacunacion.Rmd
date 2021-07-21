@@ -285,4 +285,138 @@ ggsave(filename = "2. Plots/Mayor diferencia en adultos mayores vacunados 1 dosi
        dpi = 300)
 ```
 
+### Gráfico con ambas dosis
 
+Contrastar edad mínima por departamento
+Se podría calcular la edad mínima reportada en la data con solo grupo de riesgo de adulto mayor
+
+```{r}
+vacuna_dep_dosis <- vacunas %>% 
+  filter(EDAD >= 60) %>% 
+  count(DEPARTAMENTO, DOSIS,
+        name = "n_personas")
+
+vacuna_dep_dosis <- vacuna_dep_dosis %>% 
+  bind_rows(
+    adultos_mayores_dep %>% 
+      select(DEPARTAMENTO, n_personas = adultos_mayores) %>% 
+      mutate(DOSIS = "Adulto Mayor")
+  ) %>% 
+  inner_join(
+    adultos_mayores_dep %>% 
+      select(DEPARTAMENTO, Total)
+  ) %>% 
+  arrange(DEPARTAMENTO, DOSIS) %>% 
+  mutate(
+    ratio_vacuna = n_personas/Total
+  ) %>% 
+  mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
+```
+
+```{r}
+# departamento_vac_adultos_mayores <-
+  vacuna_dep_dosis %>% 
+  group_by(DEPARTAMENTO) %>% 
+  mutate(
+    Diff_1_dos_adulto_mayor = last(ratio_vacuna) - first(ratio_vacuna),
+    Diff_2_dos_adulto_mayor = last(ratio_vacuna) - nth(ratio_vacuna, 2),
+    Diff_1_dos_2_dos = first(ratio_vacuna) - nth(ratio_vacuna, 2),
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    DEPARTAMENTO = fct_reorder(DEPARTAMENTO,
+                               Diff_1_dos_adulto_mayor)
+  ) %>%
+  ggplot(aes(x = ratio_vacuna, 
+             y = DEPARTAMENTO)) +
+  geom_line(aes(group = DEPARTAMENTO),
+            color = "#b2b2b2",
+            size = 1.5) +
+  geom_point(aes(color = DOSIS), size = 5) +
+  # scale_color_manual(
+  #   values = c("#2CA58D", "#84BC9C", "#0A2342")
+  # ) + 
+  scale_color_manual(
+    values = c("#ffa600", "#cf5187", "#2f4871")
+  ) +
+  # scale_color_manual(
+  #   values = c("#31698c", "#2c8ba7", "#2f4871")
+  # ) +
+  # scale_color_brewer(palette="Set1") +
+  scale_x_continuous(expand= c(0, 0),
+                     limits = c(0, 0.3)) +
+  scale_y_discrete(expand = c(0.05, 0)) +
+  geom_text(aes(x = 0.052,
+                y = 25.7,
+                label = "Vacunados"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  geom_text(aes(x = 0.121,
+                y = 25.7,
+                label = "+60 años"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  ggrepel::geom_text_repel(aes(x = ratio_vacuna,
+                               y = DEPARTAMENTO,
+                               label = scales::percent(ratio_vacuna,
+                                                       accuracy = 1)),
+                           size = 3, vjust = 2.2,
+                           force = 0.001,
+                           force_pull	= 2) + 
+  # geom_text(aes(x = ratio_vacuna,
+  #               y = DEPARTAMENTO,
+  #               label = scales::percent(ratio_vacuna,
+  #                                       accuracy = 1)),
+  #           size = 3, vjust = 2.2) +
+  geom_rect(aes(xmin = 0.2,
+                xmax = 0.25,
+                ymin = -Inf,
+                ymax = Inf),
+            fill = "grey") +
+  geom_text(aes(x = 0.225,
+                y = DEPARTAMENTO,
+                label = scales::percent(Diff_1_dos_adulto_mayor,
+                                        accuracy = 1)),
+            fontface = "bold",
+            size = 3) +
+  geom_text(aes(x = 0.225,
+                y = 25.7,
+                label = "Diff"),
+            color = "black",
+            size = 3.1,
+            fontface = "bold") +
+  theme_bw() +
+  labs(y = "",
+       x = "") + 
+  theme_bw(base_family="Lato") +
+  theme(
+    # panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    panel.border=element_blank(),
+    axis.ticks=element_blank(),
+    axis.text.x=element_blank(),
+    plot.title=element_text(size = 16, face="bold"),
+    plot.title.position = "plot",
+    plot.subtitle=element_text(face="italic",
+                               size=12, 
+                               margin=margin(b=12)),
+    plot.caption=element_text(size=8, 
+                              margin=margin(t=12), 
+                              color="#7a7d7e"),
+    legend.position = "top"
+  )
+```
+
+```{r}
+ggsave(filename = "2. Plots/Diferencia en adultos mayores vacunados por departamento.png",
+       plot = departamento_vac_adultos_mayores,
+       height = 9,
+       width = 6,
+       dpi = 300)
+```
+
+La diferencia hacerlo mediante porcentaje del total de adultos mayores
+
+Agregar una gráfico de barras en lugar del segment de diferencia 
