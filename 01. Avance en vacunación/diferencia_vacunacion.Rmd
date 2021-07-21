@@ -314,7 +314,7 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
 ```
 
 ```{r}
-# departamento_vac_adultos_mayores <-
+departamento_vac_adultos_mayores <-
   vacuna_dep_dosis %>% 
   group_by(DEPARTAMENTO) %>% 
   mutate(
@@ -325,7 +325,8 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
   ungroup() %>% 
   mutate(
     DEPARTAMENTO = fct_reorder(DEPARTAMENTO,
-                               Diff_1_dos_adulto_mayor)
+                               Diff_2_dos_adulto_mayor),
+    Text_depart = match(DEPARTAMENTO, levels(DEPARTAMENTO)) - 0.45
   ) %>%
   ggplot(aes(x = ratio_vacuna, 
              y = DEPARTAMENTO)) +
@@ -359,17 +360,11 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
             size = 3.1,
             fontface = "bold") +
   ggrepel::geom_text_repel(aes(x = ratio_vacuna,
-                               y = DEPARTAMENTO,
+                               y = Text_depart,
                                label = scales::percent(ratio_vacuna,
                                                        accuracy = 1)),
-                           size = 3, vjust = 2.2,
-                           force = 0.001,
-                           force_pull	= 2) + 
-  # geom_text(aes(x = ratio_vacuna,
-  #               y = DEPARTAMENTO,
-  #               label = scales::percent(ratio_vacuna,
-  #                                       accuracy = 1)),
-  #           size = 3, vjust = 2.2) +
+                           size = 3, 
+                           force = 0.01, force_pull = 8) + 
   geom_rect(aes(xmin = 0.2,
                 xmax = 0.25,
                 ymin = -Inf,
