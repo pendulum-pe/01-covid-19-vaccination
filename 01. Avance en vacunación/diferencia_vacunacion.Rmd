@@ -25,7 +25,10 @@ library(tidyverse)
 
 ```{r}
 vacunas <- readr::read_csv("1. Data/vacunas_covid.csv")
-adultos_mayores_2017 <- readRDS("1. Data/adultos_mayores_2017.rds")
+# adultos_mayores_2017 <- readRDS("1. Data/adultos_mayores_2017.rds")
+poblacion_edades <- readxl::read_excel("1. Data/Poblacion Peru 2021 Dpto Prov Dist sexo.xlsx",
+                                       sheet = "DEPARTAMENTAL",
+                                       skip = 6)
 ```
 
 [**Características:**]{.ul}
@@ -35,14 +38,25 @@ vacunas %>%
   glimpse()
 ```
 
+## Formato de datos
+
+```{r}
+vacunas <- vacunas %>% 
+  mutate(
+    across(c(GRUPO_RIESGO, SEXO,
+             DOSIS:DISTRITO),
+           factor)
+  ) 
+```
+
 # Análisis descriptivo de la data
 
 ```{r}
-skimr::skim(vacunas)
-```
-
-```{r}
-summarytools::dfSummary(vacunas) %>% 
+vacunas %>% 
+  select(GRUPO_RIESGO:SEXO,
+         DOSIS:FABRICANTE, 
+         DEPARTAMENTO) %>% 
+  summarytools::dfSummary() %>% 
   summarytools::view()
 ```
 
@@ -55,16 +69,14 @@ library(ggalt)
 ## Preparación de data
 
 ```{r}
-adultos_mayores_dep <- adultos_mayores_2017 %>% 
-  group_by(dep) %>% 
-  summarise(INEI_55annus_2017 = sum(INEI_55annus_2017),
-            INEI_Total = sum(INEI_total_2017.x)) %>% 
-  rename(DEPARTAMENTO = dep)
-
-# test <- vacunas %>% 
-#   add_count(UUID) %>% 
-#   filter(n > 1)
+adultos_mayores_dep <- poblacion_edades %>% 
+  slice(2:26) %>% 
+  select(UBIGEO:Total, ...50) %>% 
+  rename(adultos_mayores = ...50) %>% 
+  mutate(adultos_mayores = as.numeric(adultos_mayores))
 ```
+
+### Gráfico de 2 dosis
 
 ```{r}
 vacuna_dep_dosis_2 <- vacunas %>% 
@@ -75,18 +87,18 @@ vacuna_dep_dosis_2 <- vacunas %>%
 vacuna_dep_dosis_2 <- vacuna_dep_dosis_2 %>% 
   inner_join(adultos_mayores_dep) %>% 
   mutate(
-    ratio_vacuna = Vacuna_dosis_2/INEI_Total,
-    ratio_adulto_mayor = INEI_55annus_2017/INEI_Total
+    ratio_vacuna = Vacuna_dosis_2/Total,
+    ratio_adulto_mayor = adultos_mayores/Total
   ) %>% 
   mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
 ```
 
 ```{r}
-vacuna_dep_dosis_2 %>% 
+departamento_vac_2_adultos_mayores <- vacuna_dep_dosis_2 %>% 
   mutate(
     Diferencia = ratio_adulto_mayor - ratio_vacuna,
     DEPARTAMENTO = fct_reorder(DEPARTAMENTO, 
-                                    ratio_adulto_mayor)
+                               Diferencia)
   ) %>% 
   ggplot() +
   geom_segment(aes(y = DEPARTAMENTO, 
@@ -162,37 +174,36 @@ vacuna_dep_dosis_2 %>%
   
   
 
-  ggsave(filename = "test.png",
+ggsave(filename = "2. Plots/Mayor diferencia en adultos mayores vacunados 2 dosis por departamento.png",
+         plot = departamento_vac_2_adultos_mayores,
          height = 9,
          width = 6,
          dpi = 300)
-
-  
 ```
 
-
+### Gráfico de 1 dosis
 
 ```{r}
 vacuna_dep_dosis_1 <- vacunas %>% 
   filter(DOSIS == 1, EDAD >= 60) %>% 
   count(DEPARTAMENTO,
-        name = "Vacuna_dosis_2")
+        name = "Vacuna_dosis_1")
 
 vacuna_dep_dosis_1 <- vacuna_dep_dosis_1 %>% 
   inner_join(adultos_mayores_dep) %>% 
   mutate(
-    ratio_vacuna = Vacuna_dosis_2/INEI_Total,
-    ratio_adulto_mayor = INEI_55annus_2017/INEI_Total
+    ratio_vacuna = Vacuna_dosis_1/Total,
+    ratio_adulto_mayor = adultos_mayores/Total
   ) %>% 
   mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
 ```
 
 ```{r}
-vacuna_dep_dosis_1 %>% 
+departamento_vac_1_adultos_mayores <- vacuna_dep_dosis_1 %>% 
   mutate(
     Diferencia = ratio_adulto_mayor - ratio_vacuna,
     DEPARTAMENTO = fct_reorder(DEPARTAMENTO, 
-                                    ratio_adulto_mayor)
+                               Diferencia)
   ) %>% 
   ggplot() +
   geom_segment(aes(y = DEPARTAMENTO, 
@@ -267,16 +278,11 @@ vacuna_dep_dosis_1 %>%
   )
   
   
-
-  ggsave(filename = "test2.png",
-         height = 9,
-         width = 6,
-         dpi = 300)
-
-  
+ggsave(filename = "2. Plots/Mayor diferencia en adultos mayores vacunados 1 dosis por departamento.png",
+       plot = departamento_vac_1_adultos_mayores,
+       height = 9,
+       width = 6,
+       dpi = 300)
 ```
-
-Contrastar edad mínima por departamento
-Se podría calcular la edad mínima reportada en la data con solo grupo de riesgo de adulto mayor
 
 
