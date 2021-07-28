@@ -171,15 +171,16 @@ departamento_vac_2_adultos_mayores <- vacuna_dep_dosis_2 %>%
     plot.subtitle=element_text(face="italic", size=12, margin=margin(b=12)),
     plot.caption=element_text(size=8, margin=margin(t=12), color="#7a7d7e")
   )
-  
-  
+```
 
+```{r}
 ggsave(filename = "2. Plots/Mayor diferencia en adultos mayores vacunados 2 dosis por departamento.png",
          plot = departamento_vac_2_adultos_mayores,
          height = 9,
          width = 6,
          dpi = 300)
 ```
+
 
 ### Gráfico de 1 dosis
 
@@ -276,14 +277,16 @@ departamento_vac_1_adultos_mayores <- vacuna_dep_dosis_1 %>%
     plot.subtitle=element_text(face="italic", size=12, margin=margin(b=12)),
     plot.caption=element_text(size=8, margin=margin(t=12), color="#7a7d7e")
   )
-  
-  
+```
+
+```{r}
 ggsave(filename = "2. Plots/Mayor diferencia en adultos mayores vacunados 1 dosis por departamento.png",
        plot = departamento_vac_1_adultos_mayores,
        height = 9,
        width = 6,
        dpi = 300)
 ```
+
 
 ### Gráfico con ambas dosis
 
@@ -294,7 +297,8 @@ Se podría calcular la edad mínima reportada en la data con solo grupo de riesg
 vacuna_dep_dosis <- vacunas %>% 
   filter(EDAD >= 60) %>% 
   count(DEPARTAMENTO, DOSIS,
-        name = "n_personas")
+        name = "n_personas") %>% 
+  mutate(DOSIS = as.character(DOSIS))
 
 vacuna_dep_dosis <- vacuna_dep_dosis %>% 
   bind_rows(
@@ -313,21 +317,32 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
   mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
 ```
 
+
+
 ```{r}
-departamento_vac_adultos_mayores <-
-  vacuna_dep_dosis %>% 
+vacuna_dep_dosis <- vacuna_dep_dosis %>% 
   group_by(DEPARTAMENTO) %>% 
   mutate(
     Diff_1_dos_adulto_mayor = last(ratio_vacuna) - first(ratio_vacuna),
     Diff_2_dos_adulto_mayor = last(ratio_vacuna) - nth(ratio_vacuna, 2),
     Diff_1_dos_2_dos = first(ratio_vacuna) - nth(ratio_vacuna, 2),
+    ratio_avance = case_when(
+      DOSIS == "2" ~ nth(n_personas, 2)/last(n_personas),
+      DOSIS == "1" ~ (first(n_personas)/last(n_personas)) - nth(n_personas, 2)/last(n_personas),
+      TRUE ~ 1 - (first(n_personas)/last(n_personas))
+    ),
+    ratio_avance_fix = ratio_avance + 0.2
   ) %>% 
   ungroup() %>% 
   mutate(
     DEPARTAMENTO = fct_reorder(DEPARTAMENTO,
                                Diff_2_dos_adulto_mayor),
     Text_depart = match(DEPARTAMENTO, levels(DEPARTAMENTO)) - 0.45
-  ) %>%
+  )
+
+
+departamento_vac_adultos_mayores <-
+  vacuna_dep_dosis %>%
   ggplot(aes(x = ratio_vacuna, 
              y = DEPARTAMENTO)) +
   geom_line(aes(group = DEPARTAMENTO),
@@ -365,23 +380,23 @@ departamento_vac_adultos_mayores <-
                                                        accuracy = 1)),
                            size = 3, 
                            force = 0.01, force_pull = 8) + 
-  geom_rect(aes(xmin = 0.2,
-                xmax = 0.25,
-                ymin = -Inf,
-                ymax = Inf),
-            fill = "grey") +
-  geom_text(aes(x = 0.225,
-                y = DEPARTAMENTO,
-                label = scales::percent(Diff_1_dos_adulto_mayor,
-                                        accuracy = 1)),
-            fontface = "bold",
-            size = 3) +
-  geom_text(aes(x = 0.225,
-                y = 25.7,
-                label = "Diff"),
-            color = "black",
-            size = 3.1,
-            fontface = "bold") +
+  # geom_rect(aes(xmin = 0.2,
+  #               xmax = 0.25,
+  #               ymin = -Inf,
+  #               ymax = Inf),
+  #           fill = "grey") +
+  # geom_text(aes(x = 0.225,
+  #               y = DEPARTAMENTO,
+  #               label = scales::percent(Diff_1_dos_adulto_mayor,
+  #                                       accuracy = 1)),
+  #           fontface = "bold",
+  #           size = 3) +
+  # geom_text(aes(x = 0.225,
+  #               y = 25.7,
+  #               label = "Diff"),
+  #           color = "black",
+  #           size = 3.1,
+  #           fontface = "bold") +
   theme_bw() +
   labs(y = "",
        x = "") + 
@@ -402,6 +417,25 @@ departamento_vac_adultos_mayores <-
                               color="#7a7d7e"),
     legend.position = "top"
   )
+```
+
+
+
+```{r}
+departamento_vac_adultos_mayores +
+  geom_col(aes(x = ratio_avance_fix, 
+               y = DEPARTAMENTO,
+               fill = DOSIS))
+  
+
+vacuna_dep_dosis %>% 
+  mutate(DOSIS = factor(DOSIS,
+                        levels = c("Adulto Mayor", "1",
+                                   "2"))) %>% 
+  ggplot(aes(x = ratio_avance,
+             y = DEPARTAMENTO,
+             fill = DOSIS)) +
+  geom_col()
 ```
 
 ```{r}
