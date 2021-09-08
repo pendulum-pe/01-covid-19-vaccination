@@ -25,10 +25,12 @@ library(tidyverse)
 
 ```{r}
 vacunas <- readr::read_csv("1. Data/vacunas_covid.csv")
-adultos_mayores_2017 <- readRDS("1. Data/adultos_mayores_2017.rds")
+# adultos_mayores_2017 <- readRDS("1. Data/adultos_mayores_2017.rds") # Censo
 # poblacion_edades <- readxl::read_excel("1. Data/Poblacion Peru 2021 Dpto Prov Dist sexo.xlsx",
 #                                        sheet = "DEPARTAMENTAL",
-#                                        skip = 6)
+#                                        skip = 6) # Data INEI
+# poblacion <- read_csv("1. Data/TB_POBLACION_INEI.csv") # Minsa
+poblacion_reunis <- read_csv("1. Data/Población interes REUNIS.csv")
 ```
 
 [**Características:**]{.ul}
@@ -69,17 +71,43 @@ library(ggalt)
 ## Preparación de data
 
 ```{r}
-adultos_mayores_dep <- adultos_mayores_2017 %>% 
-  group_by(dep) %>% 
-  summarise(adultos_mayores = sum(INEI_55annus_2017),
-            Total = sum(INEI_total_2017.x)) %>% 
-  rename(DEPARTAMENTO = dep)
+# Data CENSO
+# adultos_mayores_dep <- adultos_mayores_2017 %>%
+#   group_by(dep) %>%
+#   summarise(adultos_mayores = sum(INEI_55annus_2017),
+#             Total = sum(Total)) %>%
+#   rename(DEPARTAMENTO = dep)
 
-# adultos_mayores_dep <- poblacion_edades %>% 
-#   slice(2:26) %>% 
-#   select(UBIGEO:Total, ...50) %>% 
-#   rename(adultos_mayores = ...50) %>% 
-#   mutate(adultos_mayores = as.numeric(adultos_mayores))
+# Data MINSA
+# adultos_mayores_dep <- poblacion %>%
+#   filter(Edad_Anio %in% c("60-64",
+#                           "65-69",
+#                           "70-74",
+#                           "75-79",
+#                           "80  +")) %>%
+#   group_by(Departamento) %>%
+#   summarise(adultos_mayores = sum(Cantidad)) %>%
+#   left_join(
+#     poblacion %>%
+#       group_by(Departamento) %>%
+#       summarise(Total = sum(Cantidad))
+#   ) %>%
+#   rename(DEPARTAMENTO = Departamento)
+
+
+# Data Reunis
+adultos_mayores_dep <- poblacion_reunis
+
+# Data INEI - ENDES
+# adultos_mayores_dep <- poblacion_edades %>%
+#   slice(2:26) %>%
+#   select(UBIGEO:DEPARTAMENTO, `12`:`80 y +`,...50) %>%
+#   rename(adultos_mayores = ...50) %>%
+#   rowwise() %>% 
+#   mutate(Total = sum(c_across(c(`12`:`80 y +`)))) %>% 
+#   ungroup() %>% 
+#   mutate(adultos_mayores = as.numeric(adultos_mayores)) %>% 
+#   select(-c(`12`:`80 y +`))
 ```
 
 ### Gráfico de 2 dosis
@@ -321,13 +349,8 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
     ratio_vacuna = n_personas/Total
   ) %>% 
   mutate(DEPARTAMENTO = str_to_title(DEPARTAMENTO))
-```
 
 
-#### Parte A
-
-
-```{r}
 vacuna_dep_dosis <- vacuna_dep_dosis %>% 
   group_by(DEPARTAMENTO) %>% 
   mutate(
@@ -351,17 +374,26 @@ vacuna_dep_dosis <- vacuna_dep_dosis %>%
   ) %>% 
   ungroup() %>% 
   mutate(
-    DEPARTAMENTO = fct_reorder2(DEPARTAMENTO,
-                                    avance_2_dosis,
-                                    ratio_avance, 
-                                    .desc = F),
+    # DEPARTAMENTO = fct_reorder2(DEPARTAMENTO,
+    #                             avance_2_dosis,
+    #                             ratio_avance, 
+    #                             .desc = F),
+    DEPARTAMENTO = fct_reorder(DEPARTAMENTO,
+                                avance_2_dosis,
+                                .desc = TRUE),
     DOSIS = factor(DOSIS,
                    levels = c("Adulto Mayor", 
                               "1",
                               "2")),
     Text_depart = match(DEPARTAMENTO, levels(DEPARTAMENTO)) - 0.45
   )
+```
 
+
+#### Parte A
+
+
+```{r}
 departamento_vac_adultos_mayores_A <-
   vacuna_dep_dosis %>%
   ggplot(aes(x = ratio_vacuna, 
@@ -511,7 +543,7 @@ Agregar una gráfico de barras en lugar del segment de diferencia
 
 
 
-#### Test
+#### Unión de gráfico
 
 ```{r}
 labels_text <- vacuna_dep_dosis %>% 
@@ -528,7 +560,9 @@ labels_text <- vacuna_dep_dosis %>%
     x_lab_adulto_mayor = `Adulto Mayor`
   )
 
-
+library(sysfonts)
+font_add_google('Anton',
+                "Anton")
 
 departamento_vac_adultos_mayores_C <- vacuna_dep_dosis %>%
   ggplot(aes(x = (ratio_vacuna-0.2)*15, 
@@ -542,23 +576,23 @@ departamento_vac_adultos_mayores_C <- vacuna_dep_dosis %>%
   ) +
   guides(
     color = guide_legend(
-      title = "Dosis:",
+      title = "Dosis",
       reverse = TRUE
     )
   ) + 
-  scale_y_discrete(expand = c(0.05, 0)) +
-  geom_text(aes(x = labels_text$x_lab_vacunados,
-                y = 26,
-                label = "Vacunados"),
-            color = "black",
-            size = 3.1,
-            fontface = "bold") +
-  geom_text(aes(x = labels_text$x_lab_adulto_mayor,
-                y = 26,
-                label = "+60 años"),
-            color = "black",
-            size = 3.1,
-            fontface = "bold") +
+  scale_y_discrete(expand = c(0, 0)) +
+  # geom_text(aes(x = labels_text$x_lab_vacunados,
+  #               y = 26,
+  #               label = "Vacunados"),
+  #           color = "black",
+  #           size = 3.1,
+  #           fontface = "bold") +
+  # geom_text(aes(x = labels_text$x_lab_adulto_mayor,
+  #               y = 26,
+  #               label = "+60 años"),
+  #           color = "black",
+  #           size = 3.1,
+  #           fontface = "bold") +
   geom_col(aes(x = ratio_avance, 
                y = DEPARTAMENTO,
                fill = DOSIS,
@@ -575,34 +609,51 @@ departamento_vac_adultos_mayores_C <- vacuna_dep_dosis %>%
                                label = scales::percent(ratio_vacuna,
                                                        accuracy = 1)),
                            size = 3,
-                           force = 0.01, force_pull = 8) +
+                           force = 0.02, force_pull = 8) +
   theme_bw() +
   labs(y = "",
-       x = "") + 
+       x = "",
+       title = str_wrap("VACUNACIÓN EN ADULTOS MAYORES",
+                        40),
+       caption = "Data de REUNIS") + 
+  coord_cartesian(ylim = c(-0.5, 25.5), clip = "off") +
   theme_bw(base_family="Lato") +
   theme(
     # panel.grid.major=element_blank(),
+    plot.margin = unit(c(0.3, 0.3, 0, 0.3), "cm"),
     panel.grid.minor=element_blank(),
     panel.border=element_blank(),
-    axis.ticks=element_blank(),
-    axis.text.x=element_blank(),
-    plot.title=element_text(size = 16, face="bold"),
+    axis.ticks =element_blank(),
+    axis.text.x =element_blank(),
+    axis.text.y = element_text(size = 11,
+                               color = "black"),
+    plot.title = element_text(size = 15,
+                              face="bold",
+                              hjust = 0.5,
+                              family = "Anton"),
     plot.title.position = "plot",
-    plot.subtitle=element_text(face="italic",
+    plot.subtitle = element_text(face="italic",
                                size=12, 
                                margin=margin(b=12)),
-    plot.caption=element_text(size=8, 
-                              margin=margin(t=12), 
-                              color="#7a7d7e"),
-    legend.position = "top"
+    plot.caption = element_text(size=10, 
+                                margin = margin(t = -30,
+                                                b = 6),
+                                color="#303030"),
+    plot.caption.position = "plot",
+    legend.text = element_text(size = 11,
+                               color = "black"),
+    legend.title = element_text(size = 13,
+                                color = "black",
+                                face = "bold")
+    # legend.position = "rigth"
   )
 ```
 
 
 ```{r}
-ggsave(filename = "2. Plots/Diferencia en adultos mayores vacunados por departamento C.png",
+ggsave(filename = "2. Plots/Diferencia en adultos mayores vacunados por departamento C - DATA Reunis.png",
        plot = departamento_vac_adultos_mayores_C,
-       height = 9,
-       width = 5.2,
+       height = 8.8,
+       width = 7,
        dpi = 350)
 ```
