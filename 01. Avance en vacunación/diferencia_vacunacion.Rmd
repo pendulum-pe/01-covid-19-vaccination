@@ -615,7 +615,7 @@ departamento_vac_adultos_mayores_C <- vacuna_dep_dosis %>%
        x = "",
        title = str_wrap("VACUNACIÓN EN ADULTOS MAYORES",
                         40),
-       caption = "Data de REUNIS") + 
+       caption = "Data de Minsa - REUNIS") + 
   coord_cartesian(ylim = c(-0.5, 25.5), clip = "off") +
   theme_bw(base_family="Lato") +
   theme(
