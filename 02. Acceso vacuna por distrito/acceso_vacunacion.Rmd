@@ -1,0 +1,189 @@
+---
+title: "Acceso a vacunación por distritos en Perú"
+author: "Brian Peña-Calero"
+date: "01/09/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+    highlight: kate
+    theme: flatly
+    code_folding: hide
+    toc_depth: 3
+    code_download: TRUE
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+# devtools::install_github("jmcastagnetto/ubigeo")
+
+```
+# Importación de datos
+
+```{r}
+centros_vacunacion <- read_csv("1. Data/TB_CENTRO_VACUNACION.csv")
+tb_ubigeo <- read_csv("1. Data/TB_UBIGEOS.csv")
+ubigeo_distrito <- ubigeo::ubigeo_district
+# poblacion <- read_csv("1. Data/TB_POBLACION_INEI.csv")
+poblacion <- read_rds("1. Data/poblacion_inei_2017.rds")
+vacunas <- read_csv("../Data General/vacunas_covid.csv")
+```
+
+# Formato de datos
+
+## Formato de data individual
+Calcular grupos de edades *frecuentes* para hacer la comparación con población vacunada.
+```{r}
+poblacion <- poblacion %>%
+  rowwise() %>% 
+  mutate(
+    Pob_tot_vac = sum(c_across(`10-14`:`95-+`)),
+    `21-30` = sum(c_across(`25-29`:`30-34`)),
+    `31-50` = sum(c_across(`35-39`:`50-54`)),
+    `50-60` = sum(c_across(`55-59`:`60-64`)),
+    `61a+` = sum(c_across(`65-69`:`95-+`))
+  ) %>% 
+  ungroup() %>% 
+  select(dep:ubigeo, Pob_tot_vac:`61a+`)
+
+poblacion_tidy <- poblacion %>% 
+  select(-c(ubigeo, Pob_tot_vac)) %>% 
+  pivot_longer(
+    cols = c(`21-30`:`61a+`),
+    names_to = "Grupo_Edad",
+    values_to = "N"
+  ) %>% 
+  rename(
+    DEPARTAMENTO = dep,
+    PROVINCIA = prov,
+    DISTRITO = distr
+  )
+```
+
+```{r}
+summ_vacunas <- vacunas %>% 
+  mutate(
+    Grupo_Edad = case_when(
+      EDAD >= 61 ~ "61a+",
+      EDAD >= 50 ~ "50-60",
+      EDAD >= 31 ~ "31-50",
+      EDAD >= 21 ~ "21-30",
+      TRUE ~ "Sin registro"
+    )
+  ) %>% 
+  count(DEPARTAMENTO, PROVINCIA,
+        DISTRITO, Grupo_Edad, DOSIS)
+```
+
+
+```{r}
+centros_vacunacion_format <- centros_vacunacion %>% 
+  left_join(
+    tb_ubigeo %>% 
+      select(id_ubigeo, ubigeo_inei:macroregion_minsa), 
+    by = "id_ubigeo"
+  ) %>% 
+  left_join(
+    ubigeo_distrito %>% 
+      select(ubigeo_inei = inei, pop_density_2020,
+             food_vulnerability_index:extreme_poverty_pct),
+    by = "ubigeo_inei"
+  )
+```
+
+## Crear conjuntos de datos
+
+```{r}
+estate_vacunas <- summ_vacunas %>% 
+  filter(Grupo_Edad != "Sin registro",
+         DOSIS == 2) %>% 
+  select(-DOSIS) %>% 
+  full_join(
+    poblacion_tidy 
+  ) %>% 
+  mutate(
+    # n = replace_na(n, 0),
+    Avance = n/N,
+    Niv_Avance = case_when(
+      Avance <= 0.1 ~ "0 a 10%",
+      Avance <= 0.3 ~ "10 a 30%",
+      Avance <= 0.5 ~ "30 a 50%",
+      Avance <= 0.7 ~ "50 a 70%",
+      Avance <= 0.9 ~ "70 a 90%",
+      Avance > 0.9 ~ "90% a +",
+      TRUE ~ NA_character_
+    )
+  ) 
+```
+
+
+# Generación de gráfico
+
+```{r}
+peru_shp <- lis::import_db("Peru_shp")
+library(sf)
+sf_use_s2(FALSE)
+```
+
+
+
+```{r}
+peru_distr_shp <- peru_shp %>% 
+  rename(
+    DEPARTAMENTO = reg,
+    PROVINCIA = prov,
+    DISTRITO = distr
+  ) %>% 
+  inner_join(
+    estate_vacunas
+  )
+
+peru_distr_shp %>% 
+  ggplot() + 
+  geom_sf(aes(fill = Niv_Avance),
+          lwd = 0) +
+  theme_bw() +
+  facet_wrap(vars(Grupo_Edad)) + 
+  lis::scale_fill_lis("jama",
+                      reverse = TRUE) +
+  # scale_fill_gradientn(
+  #   name = "Alcance de vacunación",
+  #   colours = lis::lis_pal("ecomst", reverse = T)(7)
+  # ) +
+  theme(
+    text = element_text(
+      size = 11,
+      face="bold"), 
+    axis.text = element_text(
+      size = 11,
+      face="plain",
+      colour="black"),
+    legend.text = element_text(
+      face="plain",
+      colour="black",
+      size=11),
+    legend.title =  element_text(
+      size = 12,
+      face="bold",
+      colour="black",
+      hjust = 0.5),
+    legend.spacing.y = unit(0.8, 'cm')
+  )
+```
+
+
+
+# Contabilización por distrito
+ Testear: https://slu-opengis.github.io/biscale/articles/biscale.html
+
+
+```{r}
+centros_vacunacion_format %>% 
+  count(departamento, provincia, distrito)
+```
+
+
