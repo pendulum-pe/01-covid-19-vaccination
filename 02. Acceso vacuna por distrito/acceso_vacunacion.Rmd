@@ -115,16 +115,69 @@ estate_vacunas <- summ_vacunas %>%
       Avance <= 0.7 ~ "50 a 70%",
       Avance <= 0.9 ~ "70 a 90%",
       Avance > 0.9 ~ "90% a +",
-      TRUE ~ NA_character_
-    )
+      TRUE ~ "Sin registro"
+    ),
+    Niv_Avance = factor(Niv_Avance),
+    Niv_Avance = fct_relevel(Niv_Avance, "Sin registro")
   ) 
 ```
+
+
+
+
+```{r}
+
+estate_vacunas_2 <- summ_vacunas %>% 
+  filter(Grupo_Edad != "Sin registro",
+         DOSIS == 2) %>% 
+  select(-DOSIS) %>% 
+  full_join(
+    poblacion_tidy 
+  ) %>% 
+  mutate(
+    # n = replace_na(n, 0),
+    Avance = n/N,
+    Niv_Avance = case_when(
+      Avance <= 0.5 ~ "0 a 50%",
+      Avance > 0.5 ~ "50% a +",
+      TRUE ~ "Sin registro"
+    ),
+    Niv_Avance = factor(Niv_Avance),
+    Niv_Avance = fct_relevel(Niv_Avance, "Sin registro")
+  ) 
+
+
+estate_centros_vacunacion <- centros_vacunacion_format %>% 
+  count(DEPARTAMENTO = departamento,
+        PROVINCIA = provincia, 
+        DISTRITO = distrito) %>% 
+  full_join(
+    poblacion_tidy
+  ) %>% 
+  mutate(
+    Disponibilidad = (n/N)*100,
+    Cat_Disponibilidad = case_when(
+      Disponibilidad < 1 ~ "Menos de 1 centro",
+      Disponibilidad >= 1 ~ "Al menos un centro",
+      # Disponibilidad >= 2 ~ "Más de 2 centros",
+      TRUE ~ "Sin registro"
+    ),
+    Cat_Disponibilidad = factor(Cat_Disponibilidad),
+    Cat_Disponibilidad = fct_relevel(Cat_Disponibilidad, "Sin registro")
+  )  
+
+estate_centros_vacunacion
+
+
+
+```
+
 
 
 # Generación de gráfico
 
 ```{r}
-peru_shp <- lis::import_db("Peru_shp")
+peru_shp <- lis::Peru
 library(sf)
 sf_use_s2(FALSE)
 ```
@@ -142,39 +195,47 @@ peru_distr_shp <- peru_shp %>%
     estate_vacunas
   )
 
-peru_distr_shp %>% 
+avance_1 <- peru_distr_shp %>% 
   ggplot() + 
   geom_sf(aes(fill = Niv_Avance),
           lwd = 0) +
-  theme_bw() +
   facet_wrap(vars(Grupo_Edad)) + 
-  lis::scale_fill_lis("jama",
+  lis::scale_fill_lis("npr",
                       reverse = TRUE) +
-  # scale_fill_gradientn(
-  #   name = "Alcance de vacunación",
-  #   colours = lis::lis_pal("ecomst", reverse = T)(7)
-  # ) +
+  labs(fill = "Avance de \nVacunación") +
+  theme_bw() +
   theme(
     text = element_text(
       size = 11,
       face="bold"), 
-    axis.text = element_text(
-      size = 11,
-      face="plain",
-      colour="black"),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
     legend.text = element_text(
       face="plain",
       colour="black",
-      size=11),
+      size=9),
     legend.title =  element_text(
-      size = 12,
+      size = 11,
       face="bold",
       colour="black",
-      hjust = 0.5),
-    legend.spacing.y = unit(0.8, 'cm')
+      hjust = 0.5)
   )
 ```
 
+```{r}
+ggsave("2. Plots/Avance Vacunación 1.png",
+       avance_1,
+       width = 5,
+       height = 6,
+       dpi = 800)
+```
+
+
+```{r}
+library(biscale)
+ # create classes
+data <- bi_class(stl_race_income, x = pctWhite, y = medInc, style = "quantile", dim = 3)
+```
 
 
 # Contabilización por distrito
