@@ -20,6 +20,8 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 # devtools::install_github("jmcastagnetto/ubigeo")
+library(sf)
+sf_use_s2(FALSE)
 
 ```
 # Importación de datos
@@ -29,8 +31,10 @@ centros_vacunacion <- read_csv("1. Data/TB_CENTRO_VACUNACION.csv")
 tb_ubigeo <- read_csv("1. Data/TB_UBIGEOS.csv")
 ubigeo_distrito <- ubigeo::ubigeo_district
 # poblacion <- read_csv("1. Data/TB_POBLACION_INEI.csv")
-poblacion <- read_rds("1. Data/poblacion_inei_2017.rds")
+# poblacion <- read_rds("1. Data/poblacion_inei_2017.rds")
+poblacion <- read_rds("1. Data/poblacion_inei_2017_detailed.rds")
 vacunas <- read_csv("../Data General/vacunas_covid.csv")
+peru_shp <- lis::Peru
 ```
 
 # Formato de datos
@@ -41,42 +45,85 @@ Calcular grupos de edades *frecuentes* para hacer la comparación con población
 poblacion <- poblacion %>%
   rowwise() %>% 
   mutate(
-    Pob_tot_vac = sum(c_across(`10-14`:`95-+`)),
-    `21-30` = sum(c_across(`25-29`:`30-34`)),
-    `31-50` = sum(c_across(`35-39`:`50-54`)),
-    `50-60` = sum(c_across(`55-59`:`60-64`)),
-    `61a+` = sum(c_across(`65-69`:`95-+`))
+    across(edad_0:edad_115_anos, as.numeric),
+    `12-17` = sum(c_across(edad_8_anos:edad_13_anos)),
+    `18-29` = sum(c_across(edad_14_anos:edad_25_anos)),
+    `30-49` = sum(c_across(edad_26_anos:edad_45_anos)),
+    `50-59` = sum(c_across(edad_46_anos:edad_55_anos)),
+    `60a+`  = sum(c_across(edad_56_anos:edad_115_anos))
   ) %>% 
   ungroup() %>% 
-  select(dep:ubigeo, Pob_tot_vac:`61a+`)
+  select(ubigeo:distr, `12-17`:`60a+`)
+```
 
-poblacion_tidy <- poblacion %>% 
-  select(-c(ubigeo, Pob_tot_vac)) %>% 
-  pivot_longer(
-    cols = c(`21-30`:`61a+`),
-    names_to = "Grupo_Edad",
-    values_to = "N"
-  ) %>% 
+```{r}
+poblacion_ubigeo <- ubigeo_distrito %>% 
+  filter(district != "SANTA MARIA DE HUACHIPA", # No es considerado un distrito
+         reniec != "170107") %>% # Quitar el nuevo distrito de San Antonio
+  select(department:district, ubigeo = inei) %>% 
   rename(
-    DEPARTAMENTO = dep,
+    DEPARTAMENTO = department,
+    PROVINCIA = province,
+    DISTRITO = district
+  ) 
+  
+
+poblacion_lis <- peru_shp %>% 
+  as_tibble() %>% 
+  select(reg, prov, distr, ubigeo) %>% 
+  rename(
+    DEPARTAMENTO = reg,
     PROVINCIA = prov,
     DISTRITO = distr
   )
+
+new_districts <- poblacion_ubigeo %>% 
+  anti_join(
+    poblacion_lis,
+    by = c("ubigeo")
+  )
+
+poblacion_ubigeo <- poblacion_ubigeo %>%  # Nos quedamos solo con los
+  filter(!ubigeo %in% new_districts$ubigeo) # 1874 distritos
 ```
+
+
+
+```{r}
+poblacion_tidy <- poblacion %>% 
+  select(-c(reg, prov, distr)) %>% 
+  full_join(
+    poblacion_ubigeo,
+    by = "ubigeo"
+  ) %>% 
+  # select(-c(ubigeo)) %>% 
+  pivot_longer(
+    cols = c(`12-17`:`60a+`),
+    names_to = "Grupo_Edad",
+    values_to = "N"
+  )
+```
+
 
 ```{r}
 summ_vacunas <- vacunas %>% 
   mutate(
     Grupo_Edad = case_when(
-      EDAD >= 61 ~ "61a+",
-      EDAD >= 50 ~ "50-60",
-      EDAD >= 31 ~ "31-50",
-      EDAD >= 21 ~ "21-30",
+      EDAD >= 60 ~ "60a+",
+      EDAD >= 50 ~ "50-59",
+      EDAD >= 30 ~ "30-49",
+      EDAD >= 18 ~ "18-29",
+      EDAD >= 12 ~ "12-17",
       TRUE ~ "Sin registro"
     )
   ) %>% 
   count(DEPARTAMENTO, PROVINCIA,
-        DISTRITO, Grupo_Edad, DOSIS)
+        DISTRITO, Grupo_Edad, DOSIS) %>% 
+  mutate(
+    DISTRITO = ifelse(DISTRITO == "CORONEL GREGORIO ALBARRACIN LANCHIP",
+                      "CORONEL GREGORIO ALBARRACIN LANCHIPA",
+                      DISTRITO)
+  )
 ```
 
 
@@ -92,6 +139,11 @@ centros_vacunacion_format <- centros_vacunacion %>%
       select(ubigeo_inei = inei, pop_density_2020,
              food_vulnerability_index:extreme_poverty_pct),
     by = "ubigeo_inei"
+  ) %>% 
+  mutate(
+    distrito = ifelse(distrito == "CORONEL GREGORIO ALBARRACIN LANCHIP",
+                      "CORONEL GREGORIO ALBARRACIN LANCHIPA",
+                      distrito)
   )
 ```
 
@@ -109,16 +161,17 @@ estate_vacunas <- summ_vacunas %>%
     # n = replace_na(n, 0),
     Avance = n/N,
     Niv_Avance = case_when(
-      Avance <= 0.1 ~ "0 a 10%",
-      Avance <= 0.3 ~ "10 a 30%",
-      Avance <= 0.5 ~ "30 a 50%",
+      Avance <= 0.1 ~ "Hasta 10%",
+      Avance <= 0.3 ~ "11 a 30%",
+      Avance <= 0.5 ~ "31 a 50%",
       Avance <= 0.7 ~ "50 a 70%",
       Avance <= 0.9 ~ "70 a 90%",
       Avance > 0.9 ~ "90% a +",
       TRUE ~ "Sin registro"
     ),
     Niv_Avance = factor(Niv_Avance),
-    Niv_Avance = fct_relevel(Niv_Avance, "Sin registro")
+    Niv_Avance = fct_relevel(Niv_Avance, "Sin registro",
+                             "Hasta 10%")
   ) 
 ```
 
@@ -138,12 +191,11 @@ estate_vacunas_2 <- summ_vacunas %>%
     # n = replace_na(n, 0),
     Avance = n/N,
     Niv_Avance = case_when(
-      Avance <= 0.5 ~ "0 a 50%",
+      Avance <= 0.5 & Avance >= 0.1 ~ "10 a 50%",
       Avance > 0.5 ~ "50% a +",
-      TRUE ~ "Sin registro"
+      TRUE ~ "0 a 10%"
     ),
-    Niv_Avance = factor(Niv_Avance),
-    Niv_Avance = fct_relevel(Niv_Avance, "Sin registro")
+    Niv_Avance = factor(Niv_Avance)
   ) 
 
 
@@ -157,52 +209,88 @@ estate_centros_vacunacion <- centros_vacunacion_format %>%
   mutate(
     Disponibilidad = (n/N)*100,
     Cat_Disponibilidad = case_when(
-      Disponibilidad < 1 ~ "Menos de 1 centro",
-      Disponibilidad >= 1 ~ "Al menos un centro",
-      # Disponibilidad >= 2 ~ "Más de 2 centros",
-      TRUE ~ "Sin registro"
+      # Disponibilidad < 1 ~ "Menos de 1 centro",
+      Disponibilidad >= 1 & Disponibilidad < 2 ~ "Al menos un centro",
+      Disponibilidad >= 2 ~ "Más de 2 centros",
+      TRUE ~ "Menos de 1 centro"
     ),
     Cat_Disponibilidad = factor(Cat_Disponibilidad),
-    Cat_Disponibilidad = fct_relevel(Cat_Disponibilidad, "Sin registro")
+    Cat_Disponibilidad = fct_relevel(Cat_Disponibilidad, "Menos de 1 centro")
   )  
 
-estate_centros_vacunacion
+avance_y_centros <- estate_vacunas_2 %>% 
+  select(ubigeo, DEPARTAMENTO:Grupo_Edad,
+         Avance, Niv_Avance) %>% 
+  full_join(
+    estate_centros_vacunacion %>% 
+      select(ubigeo, Grupo_Edad, Disponibilidad, 
+             Cat_Disponibilidad)
+  ) 
 
-
-
+avance_y_centros <- avance_y_centros %>% 
+  mutate(
+    Niv_tmp = case_when(
+      Niv_Avance == "0 a 10%" ~ 1,
+      Niv_Avance == "10 a 50%" ~ 2,
+      TRUE ~ 3
+    ),
+    Cat_tmp = case_when(
+      Cat_Disponibilidad == "Menos de 1 centro" ~ 1,
+      Cat_Disponibilidad == "Al menos un centro" ~ 2,
+      TRUE ~ 3 
+    ),
+    bi_class = paste0(Niv_tmp, "-", Cat_tmp)
+  ) %>% 
+  select(-c(Niv_tmp, Cat_tmp))
 ```
+
 
 
 
 # Generación de gráfico
 
-```{r}
-peru_shp <- lis::Peru
-library(sf)
-sf_use_s2(FALSE)
-```
-
-
 
 ```{r}
-peru_distr_shp <- peru_shp %>% 
-  rename(
-    DEPARTAMENTO = reg,
-    PROVINCIA = prov,
-    DISTRITO = distr
+peru_distr_shp <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
   ) %>% 
+  select(-c(reg, prov, distr)) %>% 
   inner_join(
-    estate_vacunas
-  )
+    estate_vacunas 
+  ) %>% 
+  mutate(distr_lab = ifelse(Niv_Avance == "Sin registro",
+                            DISTRITO, NA),
+         distr_lab = str_to_title(distr_lab))
+
+n_colors <- peru_distr_shp %>% 
+  pull(Niv_Avance) %>% 
+  unique() %>% 
+  length()
+
+fill_colors <- lis::lis_pal("npr", reverse = T)(n_colors)
+fill_colors[1] <- "#8b8b8b"
 
 avance_1 <- peru_distr_shp %>% 
+  filter(Grupo_Edad != "12-17") %>% 
   ggplot() + 
   geom_sf(aes(fill = Niv_Avance),
           lwd = 0) +
   facet_wrap(vars(Grupo_Edad)) + 
-  lis::scale_fill_lis("npr",
-                      reverse = TRUE) +
+  scale_fill_manual(
+    values = fill_colors
+  ) + 
+  # lis::scale_fill_lis("npr",
+  #                     reverse = TRUE) +
   labs(fill = "Avance de \nVacunación") +
+  # geom_sf_text(aes(label = distr_lab),
+  #              size = 1) +
+  ggrepel::geom_text_repel(aes(label = distr_lab,
+                               geometry = geometry),
+                           stat = "sf_coordinates",
+                           min.segment.length = 0,
+                           size = 1.5,
+                           force_pull = 3) + 
   theme_bw() +
   theme(
     text = element_text(
@@ -232,19 +320,692 @@ ggsave("2. Plots/Avance Vacunación 1.png",
 
 
 ```{r}
-library(biscale)
- # create classes
-data <- bi_class(stl_race_income, x = pctWhite, y = medInc, style = "quantile", dim = 3)
+avance_2 <- avance_1 + 
+  theme(
+    legend.position="top",
+    legend.title =  element_text(size = 9.5,
+                                 face="bold",
+                                 colour="black",
+                                 hjust = 0.5),
+    legend.text = element_text(face="plain",
+                               colour="black",
+                               size=7.5)
+  )
+```
+
+```{r}
+ggsave("2. Plots/Avance Vacunación 2.png",
+       avance_2,
+       width = 5,
+       height = 6,
+       dpi = 800)
 ```
 
 
-# Contabilización por distrito
+# Biscale plot
+
+## General
  Testear: https://slu-opengis.github.io/biscale/articles/biscale.html
+
+```{r}
+
+# source("http://pcwww.liv.ac.uk/~william/R/crosstab.r")
+# 
+# avance_y_centros %>% 
+#   select(Grupo_Edad, Niv_Avance, Cat_Disponibilidad) %>% 
+#   filter(Grupo_Edad  != "12-17") %>% 
+#   crosstab(.,
+#            row.vars = c("Grupo_Edad", "Niv_Avance"), 
+#            col.vars = "Cat_Disponibilidad", type = "f")
+```
+
+ 
+```{r}
+library(biscale)
+```
+
+```{r}
+biscale_plot <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+
+  # bi_scale_fill(pal = custom_pal, dim = 3) +
+  
+```
 
 
 ```{r}
-centros_vacunacion_format %>% 
-  count(departamento, provincia, distrito)
+legend <- bi_legend(pal = "DkViolet",
+                    dim = 3,
+                    xlab = "+ Avance ",
+                    ylab = "+ Disponibilidad ",
+                    size = 9)
+
+# bi_legend(pal = "DkViolet",
+#           dim = 3,
+#           xlab = "+ Avance ",
+#           ylab = "+ Disponibilidad ",
+#           size = 8)
+
+
+# custom_pal <- bi_pal_manual(val_1_1 = "#e8e8e8", 
+#                             val_1_2 = "#ecb778",
+#                             val_1_3 = "#e88245",
+#                             val_2_1 = "#87cdb5", 
+#                             val_2_2 = "#3b9f94", 
+#                             val_2_3 = "#03595c", 
+#                             val_3_1 = "#95cd87", 
+#                             val_3_2 = "#4d9f3b", 
+#                             val_3_3 = "#0c5c03")
+
+
+# a <- lis::lis_pal("npr", reverse = T)(6)
+# unikn::seecol(a)
+```
+
+```{r}
+library(cowplot)
+  
+final_plot <- ggdraw(biscale_plot +
+                       theme(
+                         plot.margin = unit(c(.2, 3.8, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.72,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+ggsave("2. Plots/biscale.png",
+       final_plot,
+       device = png,
+       width = 5.275,
+       height = 6,
+       dpi = 800)
+
+
+title <- ggdraw() + 
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19",
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -4.5, 0), "cm")
+  )
+
+biscale_title <- plot_grid(
+  title, 
+  final_plot +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/biscale con titulo.png",
+       biscale_title,
+       device = png,
+       width = 5.275,
+       height = 6,
+       dpi = 800)
+
+# library(patchwork)
+# final2 <- biscale_plot + 
+#   inset_element(
+#     legend,
+#     0.74, 0.3, 0.94, 0.7
+#   )
+# 
+# ggsave("2. Plots/final2.png",
+#        final2,
+#        device = png,
+#        width = 8,
+#        height = 6,
+#        dpi = 800)
+```
+
+## Por ciudades
+
+### Lima Metropolitana
+
+
+```{r}
+biscale_lima <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         PROVINCIA == "LIMA") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
 ```
 
 
+```{r}
+final_plot_lima <- ggdraw(biscale_lima +
+                       theme(
+                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.72,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_lima <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Lima Metropolitana",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_lima <- plot_grid(
+  title_lima, 
+  final_plot_lima +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/1. Biscale Lima Metropolitana.png",
+       biscale_title_lima,
+       device = png,
+       width = 5.1,
+       height = 6.2,
+       dpi = 800)
+```
+
+
+### Loreto
+
+
+```{r}
+biscale_loreto <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         DEPARTAMENTO == "LORETO") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_loreto <- ggdraw(biscale_loreto +
+                       theme(
+                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.75,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_loreto <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Loreto",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_loreto <- plot_grid(
+  title_loreto, 
+  final_plot_loreto +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/2. Biscale Loreto.png",
+       biscale_title_loreto,
+       device = png,
+       width = 5.4,
+       height = 5.6,
+       dpi = 800)
+```
+
+
+
+### Arequipa - Provincia
+
+
+```{r}
+biscale_arequipa <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         PROVINCIA == "AREQUIPA") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_arequipa <- ggdraw(biscale_arequipa +
+                       theme(
+                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.65,
+            y = 0.35,
+            width = 0.4,
+            height = 0.4,
+            scale = 1) 
+
+title_arequipa <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Provincia de Arequipa",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_arequipa <- plot_grid(
+  title_arequipa, 
+  final_plot_arequipa +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.2, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/3. Biscale arequipa provincia.png",
+       biscale_title_arequipa,
+       device = png,
+       width = 5.4,
+       height = 3.5,
+       dpi = 800)
+```
+
+
+### Región Piura
+
+
+```{r}
+biscale_piura <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         DEPARTAMENTO == "PIURA") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_piura <- ggdraw(biscale_piura +
+                       theme(
+                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.75,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_piura <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Piura",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_piura <- plot_grid(
+  title_piura, 
+  final_plot_piura +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/4. Biscale Piura region.png",
+       biscale_title_piura,
+       device = png,
+       width = 5.4,
+       height = 5.6,
+       dpi = 800)
+```
+
+
+
+### Lima Metropolitana y Callao
+
+
+```{r}
+biscale_lima_callao <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         PROVINCIA == "LIMA" | DEPARTAMENTO == "CALLAO") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_lima_callao <- ggdraw(biscale_lima_callao +
+                       theme(
+                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.72,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_lima_callao <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Lima y Callao",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_lima_callao <- plot_grid(
+  title_lima_callao, 
+  final_plot_lima_callao +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/5. Biscale Lima Metropolitana y Callao.png",
+       biscale_title_lima_callao,
+       device = png,
+       width = 5.1,
+       height = 6.2,
+       dpi = 800)
+```
+
+
+### Región Tacna
+
+
+```{r}
+biscale_tacna <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         DEPARTAMENTO == "TACNA") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_tacna <- ggdraw(biscale_tacna +
+                       theme(
+                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.75,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_tacna <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Tacna",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_tacna <- plot_grid(
+  title_tacna, 
+  final_plot_tacna +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/6. Biscale Tacna region.png",
+       biscale_title_tacna,
+       device = png,
+       width = 5.4,
+       height = 5.2,
+       dpi = 800)
+```
+
+
+
+### Región Puno
+
+
+```{r}
+biscale_puno <- peru_shp %>%
+  mutate(
+    ubigeo = str_remove(ubigeo, "AREA # ")
+  ) %>% 
+  select(-c(reg, prov, distr)) %>% 
+  inner_join(
+    avance_y_centros 
+  ) %>%  
+  filter(Grupo_Edad != "12-17",
+         DEPARTAMENTO == "PUNO") %>% 
+  ggplot() +
+  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
+          color = "white", show.legend = FALSE) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  bi_scale_fill(pal = "DkViolet", dim = 3) +
+  theme_bw() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+  )
+```
+
+
+```{r}
+final_plot_puno <- ggdraw(biscale_puno +
+                       theme(
+                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
+                       )) + 
+  draw_plot(legend,
+            x = 0.72,
+            y = 0.35,
+            width = 0.27,
+            height = 0.27,
+            scale = 1) 
+
+title_puno <- ggdraw() +
+  draw_label(
+    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Puno",
+    size = 13.5,
+    fontface = 'bold',
+    y = 0.9
+  ) +
+  theme(
+    panel.background = element_rect(fill = "white",
+                                    colour = NA),
+    plot.margin = unit(c(0, 0, -5, 0), "cm")
+  )
+
+biscale_title_puno <- plot_grid(
+  title_puno, 
+  final_plot_puno +
+    theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  ),
+  ncol = 1,
+  rel_heights = c(0.1, 1),
+  rel_widths = c(0.7, 1)
+)
+
+ggsave("2. Plots/Ciudades/7. Biscale Puno region.png",
+       biscale_title_puno,
+       device = png,
+       width = 5.1,
+       height = 6.2,
+       dpi = 800)
+```
