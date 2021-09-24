@@ -207,7 +207,7 @@ estate_centros_vacunacion <- centros_vacunacion_format %>%
     poblacion_tidy
   ) %>% 
   mutate(
-    Disponibilidad = (n/N)*100,
+    Disponibilidad = (n/N)*10000,
     Cat_Disponibilidad = case_when(
       # Disponibilidad < 1 ~ "Menos de 1 centro",
       Disponibilidad >= 1 & Disponibilidad < 2 ~ "Al menos un centro",
@@ -239,7 +239,14 @@ avance_y_centros <- avance_y_centros %>%
       Cat_Disponibilidad == "Al menos un centro" ~ 2,
       TRUE ~ 3 
     ),
-    bi_class = paste0(Niv_tmp, "-", Cat_tmp)
+    bi_class = paste0(Niv_tmp, "-", Cat_tmp),
+    Grupo_Edad = case_when(
+      Grupo_Edad == "12-17" ~ "12 a 17 años",
+      Grupo_Edad == "18-29" ~ "18 a 29 años",
+      Grupo_Edad == "30-49" ~ "30 a 49 años",
+      Grupo_Edad == "50-59" ~ "50 a 59 años",
+      Grupo_Edad == "60a+" ~ "60 años a más"
+    )
   ) %>% 
   select(-c(Niv_tmp, Cat_tmp))
 ```
@@ -362,10 +369,14 @@ ggsave("2. Plots/Avance Vacunación 2.png",
  
 ```{r}
 library(biscale)
+library(ggspatial)
+library(cowplot)
+
+fecha_update <- "23 de Septiembre"
 ```
 
 ```{r}
-biscale_plot <- peru_shp %>%
+biscale_peru_shp <- peru_shp %>%
   mutate(
     ubigeo = str_remove(ubigeo, "AREA # ")
   ) %>% 
@@ -373,19 +384,46 @@ biscale_plot <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17") %>% 
+  filter(Grupo_Edad != "12-17")
+
+peru_dep_shp <- biscale_peru_shp %>% 
+  group_by(DEPARTAMENTO) %>% 
+  summarise()
+
+biscale_plot <- biscale_peru_shp %>% 
   ggplot() +
   geom_sf(mapping = aes(fill = bi_class), lwd = 0,
           color = "white", show.legend = FALSE) +
-  facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  geom_sf(data = peru_dep_shp, fill = NA,
+          color = "#1c0b07", lwd = 0.3) +
+  facet_wrap(vars(Grupo_Edad)) + 
+  scale_x_continuous(breaks = rev(seq(-70, -79, -3))) +
+  annotation_scale() +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
-
   # bi_scale_fill(pal = custom_pal, dim = 3) +
   
 ```
@@ -396,7 +434,7 @@ legend <- bi_legend(pal = "DkViolet",
                     dim = 3,
                     xlab = "+ Avance ",
                     ylab = "+ Disponibilidad ",
-                    size = 9)
+                    size = 10)
 
 # bi_legend(pal = "DkViolet",
 #           dim = 3,
@@ -421,56 +459,107 @@ legend <- bi_legend(pal = "DkViolet",
 ```
 
 ```{r}
-library(cowplot)
-  
 final_plot <- ggdraw(biscale_plot +
                        theme(
-                         plot.margin = unit(c(.2, 3.8, .2, .2), "cm")
+                         plot.margin = unit(c(0, 4, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
-            x = 0.72,
+            x = 0.75,
             y = 0.35,
             width = 0.27,
             height = 0.27,
-            scale = 1) 
-
-ggsave("2. Plots/biscale.png",
-       final_plot,
-       device = png,
-       width = 5.275,
-       height = 6,
-       dpi = 800)
-
-
-title <- ggdraw() + 
-  draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19",
-    fontface = 'bold',
-    y = 0.9
-  ) +
+            scale = 1) +
   theme(
     panel.background = element_rect(fill = "white", 
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -4.5, 0), "cm")
+                                    colour = NA)
+  )
+
+ggsave("2. Plots/Biscale Nacional.png",
+       final_plot,
+       device = png,
+       width = 7.6,
+       height = 8,
+       dpi = 300)
+
+
+title_peru <- ggdraw() + 
+  draw_label(
+    "Cobertura y acceso de vacunas contra la COVID-19",
+    size = 14,
+        fontface = 'bold',
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -7.5, 0), "cm")
+  )
+
+
+subtitle_peru <- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -6, 0), "cm")
   )
 
 biscale_title <- plot_grid(
-  title, 
+  title_peru, 
+  subtitle_peru,
   final_plot +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
 
-ggsave("2. Plots/biscale con titulo.png",
+biscale_title <- ggdraw(
+  add_sub(biscale_title,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+) 
+
+
+biscale_title <- ggdraw(
+  add_sub(biscale_title,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
+
+ggsave("2. Plots/Biscale Nacional con Título 300dpi.png",
        biscale_title,
        device = png,
-       width = 5.275,
-       height = 6,
+       width = 6.2,
+       height = 8.1,
+       dpi = 300)
+
+ggsave("2. Plots/Biscale Nacional con Título 800dpi.png",
+       biscale_title,
+       device = png,
+       width = 6.2,
+       height = 8.1,
        dpi = 800)
 
 # library(patchwork)
@@ -490,7 +579,7 @@ ggsave("2. Plots/biscale con titulo.png",
 
 ## Por ciudades
 
-### Lima Metropolitana
+### Lima Metropolitana y Callao
 
 
 ```{r}
@@ -502,18 +591,40 @@ biscale_lima <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
-         PROVINCIA == "LIMA") %>% 
+  filter(Grupo_Edad != "12 a 17 años",
+         PROVINCIA == "LIMA" | DEPARTAMENTO == "CALLAO") %>% 
   ggplot() +
-  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
-          color = "white", show.legend = FALSE) +
+  geom_sf(mapping = aes(fill = bi_class),
+          show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  scale_x_continuous(breaks = rev(seq(-76.7, -77.1, -0.2))) +
+  annotation_scale() +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -521,10 +632,10 @@ biscale_lima <- peru_shp %>%
 ```{r}
 final_plot_lima <- ggdraw(biscale_lima +
                        theme(
-                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
-            x = 0.72,
+            x = 0.75,
             y = 0.35,
             width = 0.27,
             height = 0.27,
@@ -532,39 +643,85 @@ final_plot_lima <- ggdraw(biscale_lima +
 
 title_lima <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Lima Metropolitana",
+    "Cobertura y acceso de vacunas contra la COVID-19 en \nLima Metropolitana y Callao",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
+    plot.margin = unit(c(0, 0, -10, 0), "cm")
+  )
+
+subtitle_lima <- ggdraw() +
+  draw_label(
+    str_wrap("Actualizado al 23 de Septiembre del 2021."),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -7.5, 0), "cm")
   )
 
 biscale_title_lima <- plot_grid(
   title_lima, 
+  subtitle_lima,
   final_plot_lima +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
 
-ggsave("2. Plots/Ciudades/1. Biscale Lima Metropolitana.png",
+
+biscale_title_lima <- ggdraw(
+  add_sub(biscale_title_lima,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+biscale_title_lima <- ggdraw(
+  add_sub(biscale_title_lima,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
+ggsave("2. Plots/Ciudades/1. Biscale Lima Metropolitana y Callao.png",
        biscale_title_lima,
        device = png,
-       width = 5.1,
-       height = 6.2,
-       dpi = 800)
+       width = 6.4,
+       height = 9,
+       dpi = 300)
 ```
 
 
 ### Loreto
+
+```{r}
+loreto_prov_shp <- biscale_peru_shp %>% 
+  filter(DEPARTAMENTO == "LORETO") %>% 
+  group_by(PROVINCIA) %>% 
+  summarise()
+```
 
 
 ```{r}
@@ -576,18 +733,37 @@ biscale_loreto <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
+  filter(Grupo_Edad != "12 a 17 años",
          DEPARTAMENTO == "LORETO") %>% 
   ggplot() +
-  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
-          color = "white", show.legend = FALSE) +
+  geom_sf(mapping = aes(fill = bi_class), 
+          show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  geom_sf(data = loreto_prov_shp, fill = NA,
+          color = "#1c0b07", lwd = 0.5) +
+  annotation_scale(location = "br") +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -595,7 +771,7 @@ biscale_loreto <- peru_shp %>%
 ```{r}
 final_plot_loreto <- ggdraw(biscale_loreto +
                        theme(
-                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3.5, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
             x = 0.75,
@@ -606,37 +782,83 @@ final_plot_loreto <- ggdraw(biscale_loreto +
 
 title_loreto <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Loreto",
+    "Cobertura y acceso de vacunas contra la COVID-19 \nen Loreto",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
+    plot.margin = unit(c(0, 0, -7, 0), "cm")
+  )
+
+subtitle_loreto <- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -5.5, 0), "cm")
   )
 
 biscale_title_loreto <- plot_grid(
   title_loreto, 
+  subtitle_loreto,
   final_plot_loreto +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
+
+biscale_title_loreto <- ggdraw(
+  add_sub(biscale_title_loreto,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+
+biscale_title_loreto <- ggdraw(
+  add_sub(biscale_title_loreto,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
 
 ggsave("2. Plots/Ciudades/2. Biscale Loreto.png",
        biscale_title_loreto,
        device = png,
-       width = 5.4,
-       height = 5.6,
+       width = 6.4,
+       height = 7,
+       dpi = 300)
+
+ggsave("2. Plots/Ciudades/2. Biscale Loreto 800dpi.png",
+       biscale_title_loreto,
+       device = png,
+       width = 6.4,
+       height = 7,
        dpi = 800)
 ```
-
 
 
 ### Arequipa - Provincia
@@ -651,18 +873,40 @@ biscale_arequipa <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
+  filter(Grupo_Edad != "12 a 17 años",
          PROVINCIA == "AREQUIPA") %>% 
   ggplot() +
   geom_sf(mapping = aes(fill = bi_class), lwd = 0,
           color = "white", show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  scale_x_continuous(breaks = rev(seq(-70.9, -72.2, -0.3))) +
+  annotation_scale(location = "br") +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -670,21 +914,24 @@ biscale_arequipa <- peru_shp %>%
 ```{r}
 final_plot_arequipa <- ggdraw(biscale_arequipa +
                        theme(
-                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3.5, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
-            x = 0.65,
+            x = 0.78,
             y = 0.35,
-            width = 0.4,
-            height = 0.4,
+            width = 0.27,
+            height = 0.27,
             scale = 1) 
 
 title_arequipa <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Provincia de Arequipa",
+    "Cobertura y acceso de vacunas contra la COVID-19 en la \nProvincia de Arequipa",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
     panel.background = element_rect(fill = "white",
@@ -692,24 +939,63 @@ title_arequipa <- ggdraw() +
     plot.margin = unit(c(0, 0, -5, 0), "cm")
   )
 
+subtitle_arequipa <- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -5.5, 0), "cm")
+  )
+
+
+
 biscale_title_arequipa <- plot_grid(
   title_arequipa, 
+  subtitle_arequipa,
   final_plot_arequipa +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.2, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
+
+biscale_title_arequipa <- ggdraw(
+  add_sub(biscale_title_arequipa,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+biscale_title_arequipa <- ggdraw(
+  add_sub(biscale_title_arequipa,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito.", width = 90),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
 
 ggsave("2. Plots/Ciudades/3. Biscale arequipa provincia.png",
        biscale_title_arequipa,
        device = png,
-       width = 5.4,
-       height = 3.5,
-       dpi = 800)
+       width = 8,
+       height = 6.4,
+       dpi = 300)
 ```
 
 
@@ -725,18 +1011,40 @@ biscale_piura <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
+  filter(Grupo_Edad != "12 a 17 años",
          DEPARTAMENTO == "PIURA") %>% 
   ggplot() +
   geom_sf(mapping = aes(fill = bi_class), lwd = 0,
           color = "white", show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  scale_x_continuous(breaks = rev(seq(-79.2, -81, -0.6))) + 
+  annotation_scale(location = "br") +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -744,7 +1052,7 @@ biscale_piura <- peru_shp %>%
 ```{r}
 final_plot_piura <- ggdraw(biscale_piura +
                        theme(
-                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3.5, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
             x = 0.75,
@@ -755,110 +1063,74 @@ final_plot_piura <- ggdraw(biscale_piura +
 
 title_piura <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Piura",
+   "Cobertura y acceso de vacunas contra la COVID-19 \nen Piura",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
+    plot.margin = unit(c(0, 0, -8, 0), "cm")
+  )
+
+subtitle_piura <- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -7.5, 0), "cm")
   )
 
 biscale_title_piura <- plot_grid(
   title_piura, 
+  subtitle_piura,
   final_plot_piura +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
+
+biscale_title_piura <- ggdraw(
+  add_sub(biscale_title_piura,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+biscale_title_piura <- ggdraw(
+  add_sub(biscale_title_piura,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
 
 ggsave("2. Plots/Ciudades/4. Biscale Piura region.png",
        biscale_title_piura,
        device = png,
-       width = 5.4,
-       height = 5.6,
-       dpi = 800)
-```
-
-
-
-### Lima Metropolitana y Callao
-
-
-```{r}
-biscale_lima_callao <- peru_shp %>%
-  mutate(
-    ubigeo = str_remove(ubigeo, "AREA # ")
-  ) %>% 
-  select(-c(reg, prov, distr)) %>% 
-  inner_join(
-    avance_y_centros 
-  ) %>%  
-  filter(Grupo_Edad != "12-17",
-         PROVINCIA == "LIMA" | DEPARTAMENTO == "CALLAO") %>% 
-  ggplot() +
-  geom_sf(mapping = aes(fill = bi_class), lwd = 0,
-          color = "white", show.legend = FALSE) +
-  facet_wrap(vars(Grupo_Edad)) + 
-  bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
-  theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
-  )
-```
-
-
-```{r}
-final_plot_lima_callao <- ggdraw(biscale_lima_callao +
-                       theme(
-                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
-                       )) + 
-  draw_plot(legend,
-            x = 0.72,
-            y = 0.35,
-            width = 0.27,
-            height = 0.27,
-            scale = 1) 
-
-title_lima_callao <- ggdraw() +
-  draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Lima y Callao",
-    size = 13.5,
-    fontface = 'bold',
-    y = 0.9
-  ) +
-  theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
-  )
-
-biscale_title_lima_callao <- plot_grid(
-  title_lima_callao, 
-  final_plot_lima_callao +
-    theme(
-    panel.background = element_rect(fill = "white", 
-                                    colour = NA)
-  ),
-  ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
-)
-
-ggsave("2. Plots/Ciudades/5. Biscale Lima Metropolitana y Callao.png",
-       biscale_title_lima_callao,
-       device = png,
-       width = 5.1,
-       height = 6.2,
-       dpi = 800)
+       width = 6.4,
+       height = 7.2,
+       dpi = 300)
 ```
 
 
@@ -874,18 +1146,39 @@ biscale_tacna <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
+  filter(Grupo_Edad != "12 a 17 años",
          DEPARTAMENTO == "TACNA") %>% 
   ggplot() +
   geom_sf(mapping = aes(fill = bi_class), lwd = 0,
           color = "white", show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  annotation_scale() +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -893,7 +1186,7 @@ biscale_tacna <- peru_shp %>%
 ```{r}
 final_plot_tacna <- ggdraw(biscale_tacna +
                        theme(
-                         plot.margin = unit(c(.2, 3.5, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3.5, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
             x = 0.75,
@@ -904,35 +1197,74 @@ final_plot_tacna <- ggdraw(biscale_tacna +
 
 title_tacna <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Tacna",
+    "Cobertura y acceso de vacunas contra la COVID-19 \nen Tacna",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
+    plot.margin = unit(c(0, 0, -8, 0), "cm")
+  )
+
+subtitle_tacna<- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -7.5, 0), "cm")
   )
 
 biscale_title_tacna <- plot_grid(
   title_tacna, 
+  subtitle_tacna,
   final_plot_tacna +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
 
-ggsave("2. Plots/Ciudades/6. Biscale Tacna region.png",
+
+biscale_title_tacna <- ggdraw(
+  add_sub(biscale_title_tacna,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+biscale_title_tacna <- ggdraw(
+  add_sub(biscale_title_tacna,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
+ggsave("2. Plots/Ciudades/5. Biscale Tacna region.png",
        biscale_title_tacna,
        device = png,
-       width = 5.4,
-       height = 5.2,
-       dpi = 800)
+       width = 6.4,
+       height = 7.2,
+       dpi = 300)
 ```
 
 
@@ -949,18 +1281,40 @@ biscale_puno <- peru_shp %>%
   inner_join(
     avance_y_centros 
   ) %>%  
-  filter(Grupo_Edad != "12-17",
+  filter(Grupo_Edad != "12 a 17 años",
          DEPARTAMENTO == "PUNO") %>% 
   ggplot() +
   geom_sf(mapping = aes(fill = bi_class), lwd = 0,
           color = "white", show.legend = FALSE) +
   facet_wrap(vars(Grupo_Edad)) + 
   bi_scale_fill(pal = "DkViolet", dim = 3) +
-  theme_bw() +
+  scale_x_continuous(breaks = rev(seq(-69, -71, -1))) +
+  annotation_scale() +
+  # annotation_north_arrow(location = "tr",
+  #                        height = unit(0.9, "cm"),
+  #                        width = unit(0.7, "cm"),
+  #                        style = north_arrow_orienteering) +
+  theme_minimal() +
   theme(
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-    plot.margin = ggplot2::unit(c(.5, .5, .2, .5), "cm")
+    # axis.text = element_blank(),
+    # axis.ticks = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    
+    plot.margin = unit(c(.5, .5, .2, .5), "cm"),
+    
+    # Cuadrícula del fondo
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    
+    # Reafirmar color blanco de fondo
+    plot.background = element_rect(fill = "#ffffff", color = NA),
+    panel.background = element_rect(fill = "#ffffff", color = NA),
+    
+    # Facet
+    strip.text = element_text(face = "bold",
+                              size = 11),
+    strip.background = element_rect(fill = "grey85", 
+                                    colour = "grey20")
   )
 ```
 
@@ -968,10 +1322,10 @@ biscale_puno <- peru_shp %>%
 ```{r}
 final_plot_puno <- ggdraw(biscale_puno +
                        theme(
-                         plot.margin = unit(c(.2, 3, .2, .2), "cm")
+                         plot.margin = unit(c(0, 3, .2, .2), "cm")
                        )) + 
   draw_plot(legend,
-            x = 0.72,
+            x = 0.75,
             y = 0.35,
             width = 0.27,
             height = 0.27,
@@ -979,33 +1333,71 @@ final_plot_puno <- ggdraw(biscale_puno +
 
 title_puno <- ggdraw() +
   draw_label(
-    "Avance de vacunación vs disponibilidad de centros \nde vacunación contra COVID-19 en Puno",
+    "Cobertura y acceso de vacunas contra la COVID-19 \nen Puno",
     size = 13.5,
     fontface = 'bold',
-    y = 0.9
+    x = 0.08,
+    y = 0.90,
+    hjust = 0,
+    fontfamily = "Roboto"
   ) +
   theme(
-    panel.background = element_rect(fill = "white",
-                                    colour = NA),
-    plot.margin = unit(c(0, 0, -5, 0), "cm")
+    plot.margin = unit(c(0, 0, -10, 0), "cm")
+  )
+
+subtitle_puno <- ggdraw() +
+  draw_label(
+    str_wrap(paste0("Actualizado al ",  fecha_update, "del 2021.")),
+    size = 10,
+    y = 0.92,
+    x = 0.08,
+    hjust = 0,
+    fontfamily = "Roboto"
+  ) +
+  theme(
+    plot.margin = unit(c(0, 0, -7.5, 0), "cm")
   )
 
 biscale_title_puno <- plot_grid(
   title_puno, 
+  subtitle_puno,
   final_plot_puno +
     theme(
     panel.background = element_rect(fill = "white", 
                                     colour = NA)
   ),
   ncol = 1,
-  rel_heights = c(0.1, 1),
-  rel_widths = c(0.7, 1)
+  rel_heights = c(0.08, 0.08, 1)
 )
 
-ggsave("2. Plots/Ciudades/7. Biscale Puno region.png",
+biscale_title_puno <- ggdraw(
+  add_sub(biscale_title_puno,
+          "Elaboración: Pendulum - Data Lab",
+          size = 12,
+          y = 0.65,
+          x = 0.95,
+          hjust = 1,
+          fontfamily = "Inconsolata")
+)
+
+biscale_title_puno <- ggdraw(
+  add_sub(biscale_title_puno,
+          str_wrap("Disponibilidad de centros de vacunación categorizado en 3 grupos: Menos de 1 centro de vacunación, al menos 1 centro de vacunación, más de 2 centros de vacunación por cada 10k de habitantes. Cobertura de vacunación dividido en 3 grupos: 0 a 10%; 10 a 50%; y, 50% a más de la población del distrito."),
+          size = 10,
+          y = 0.55,
+          x = 0.08,
+          hjust = 0,
+          fontfamily = "Roboto")
+) + 
+  theme(
+    panel.background = element_rect(fill = "white", 
+                                    colour = NA)
+  )
+
+ggsave("2. Plots/Ciudades/6. Biscale Puno region.png",
        biscale_title_puno,
        device = png,
-       width = 5.1,
-       height = 6.2,
-       dpi = 800)
+       width = 6.4,
+       height = 9,
+       dpi = 300)
 ```
